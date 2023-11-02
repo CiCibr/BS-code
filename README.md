@@ -1,0 +1,3 @@
+# BS
+运行代码前将network_traces，short_video_size，user_ret三个文件夹放进名为data文件夹内
+network_traces文件夹中包含data1,data2,high,low,medium,mixed
