@@ -10,12 +10,12 @@ from simulator import controller as env, short_video_load_trace
 # from ppo_discrete import Actor
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--quickstart', type=str, default='', help='Is testing quickstart')
-parser.add_argument('--baseline', type=str, default='', help='Is testing baseline')
+parser.add_argument('--fixpreload', type=str, default='', help='Is testing fixpreload')
+parser.add_argument('--MPC', type=str, default='', help='Is testing MPC')
 parser.add_argument('--solution', type=str, default='solution',
                     help='The relative path of your file dir, default is current dir')
 parser.add_argument('--trace', type=str, default='mixed',
-                    help='The network trace you are testing (mixed, high, low, medium, middle)')
+                    help='The network trace you are testing (mixed, high, low, medium)')
 args = parser.parse_args()
 
 RANDOM_SEED = 42  # the random seed for user retention
@@ -31,13 +31,11 @@ score_file = 'logs/score_log.txt'
 score_file = open(score_file, 'w')
 
 # QoE arguments
-alpha = 1
-beta = 1.85
-gamma = 1
+alpha = 1.35 #1
+beta = 1
+gamma = 1.35 #1.85
 theta = 0.5
 ALL_VIDEO_NUM = 7
-# baseline_QoE = 600  # baseline's QoE
-# TOLERANCE = 0.1  # The tolerance of the QoE decrease
 MIN_QOE = -1e4
 all_cooked_time = []
 all_cooked_bw = []
@@ -60,26 +58,26 @@ def get_smooth(net_env, download_video_id, chunk_id, quality):
     return abs(quality - VIDEO_BIT_RATE[last_bitrate])
 
 
-def test(isBaseline, isQuickstart, user_id, trace_id, user_sample_id):
+def test(ismpc, isQuickstart, user_id, trace_id, user_sample_id):
     global LOG_FILE
     global log_file
-    if isBaseline:  # Testing baseline algorithm
-        sys.path.append('./baseline/')
-        if user_id == 'no_save':
-            import no_save as Solution
-            LOG_FILE = 'logs/log_nosave.txt'
+    if ismpc:  # Testing MPC algorithm
+        sys.path.append('./MPC/')
+        if user_id == 'mpc':
+            import mpc as Solution
+            LOG_FILE = 'logs/log_mpc.txt'
             log_file = open(LOG_FILE, 'w')
-        sys.path.remove('./baseline/')
+        sys.path.remove('./MPC/')
     elif isQuickstart:  # Testing quickstart algorithm
-        sys.path.append('./quickstart/')
+        sys.path.append('./fixpreload/')
         if user_id == 'fixed_preload':
             import fixpreload as Solution
             LOG_FILE = 'logs/log_fixpreload.txt'
             log_file = open(LOG_FILE, 'w')
-        sys.path.remove('./quickstart/')
+        sys.path.remove('./fixpreload/')
     else:  # Testing participant's algorithm
         sys.path.append(user_id)
-        import submit.solution as Solution
+        import submit.QoE_Waste as Solution
         sys.path.remove(user_id)
         LOG_FILE = 'logs/log.txt'
         log_file = open(LOG_FILE, 'w')
@@ -220,7 +218,7 @@ def test(isBaseline, isQuickstart, user_id, trace_id, user_sample_id):
 
 
 # add multiple network conditions
-def test_all_traces(isBaseline, isQuickstart, user_id, trace, user_sample_id):
+def test_all_traces(ismpc, isfixpreload, user_id, trace, user_sample_id):
     avg = np.zeros(5) * 1.0
     cooked_trace_folder = 'data/network_traces/' + trace + '/'
     cooked_trace_folder_low = 'data/network_traces/' + 'low' + '/'
@@ -261,9 +259,9 @@ def test_all_traces(isBaseline, isQuickstart, user_id, trace, user_sample_id):
 
     for i in range(len(all_cooked_time)):
         print('------------trace ', i, '--------------', file=score_file)
-        result = test(isBaseline, isQuickstart, user_id, i, user_sample_id)
+        result = test(ismpc, isfixpreload, user_id, i, user_sample_id)
         results.append(result)
-        avg += test(isBaseline, isQuickstart, user_id, i, user_sample_id)
+        avg += test(ismpc, isfixpreload, user_id, i, user_sample_id)
         print('---------------------------------------\n\n', file=score_file)
     avg /= len(all_cooked_time)
 
@@ -274,7 +272,7 @@ def test_all_traces(isBaseline, isQuickstart, user_id, trace, user_sample_id):
     df = pd.concat([df, avg.to_frame().T], ignore_index=True)
     df.iloc[-1, 0] = 'Average'
     # Save the DataFrame as a CSV file
-    df.to_csv('results1.csv', index=True)
+    df.to_csv('results_mixed_mpdqn.csv', index=True)
 
     print("\n\nYour average indexes under [", 'all', "] network is: ", file=score_file)
     print("Score: ", avg[0], file=score_file)
@@ -286,14 +284,14 @@ def test_all_traces(isBaseline, isQuickstart, user_id, trace, user_sample_id):
     return avg
 
 
-def test_user_samples(isBaseline, isQuickstart, user_id, trace, sample_cnt):  # test 50 user sample
+def test_user_samples(ismpc, isfixpreload, user_id, trace, sample_cnt):  # test 50 user sample
     seed_for_sample = np.random.randint(10000, size=(1001, 1))
     avgs = np.zeros(5)
     for j in range(sample_cnt):
         global seeds
         np.random.seed(seed_for_sample[j])
         seeds = np.random.randint(10000, size=(7, 2))  # reset the sample random seeds
-        avgs += test_all_traces(isBaseline, isQuickstart, user_id, trace, j)
+        avgs += test_all_traces(ismpc, isfixpreload, user_id, trace, j)
     avgs /= sample_cnt
     print("Score: ", avgs[0], file=score_file )
     print("Bandwidth Usage: ", avgs[1], file=score_file)
@@ -306,15 +304,15 @@ if __name__ == '__main__':
     assert args.trace in ["mixed", "high", "low", "medium"]
     total_avg_score = 0
     monte = 1
-    if args.baseline == '' and args.quickstart == '':
+    if args.MPC == '' and args.fixpreload == '':
         for i in range(monte):
             total_avg_score += test_all_traces(False, False, args.solution, args.trace, i)[0]  # 0 means the first user sample.
-    elif args.quickstart != '':
+    elif args.fixpreload != '':
         for i in range(monte):
-            total_avg_score += test_all_traces(False, True, args.quickstart, args.trace, i)[0]
+            total_avg_score += test_all_traces(False, True, args.fixpreload, args.trace, i)[0]
     else:
         for i in range(monte):
-            total_avg_score += test_all_traces(True, False, args.baseline, args.trace, i)[0]
+            total_avg_score += test_all_traces(True, False, args.MPC, args.trace, i)[0]
 
 
     print(total_avg_score)
